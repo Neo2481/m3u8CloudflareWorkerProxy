@@ -2,8 +2,12 @@ name: Deploy to Cloudflare Workers
 
 on:
   push:
+    branches:
+      - main  # Adjust if using a different branch
   pull_request:
-  repository_dispatch:
+    branches:
+      - main
+  workflow_dispatch:  # Allows manual triggering
 
 jobs:
   build:
@@ -11,7 +15,11 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
-      # Add any build steps if necessary
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18  # Ensure Node.js is available
 
   deploy:
     runs-on: ubuntu-latest
@@ -20,6 +28,11 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18  # Ensure compatibility with Wrangler
 
       - name: Install Wrangler
         run: npm install -g wrangler
