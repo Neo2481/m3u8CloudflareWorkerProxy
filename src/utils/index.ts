@@ -1,15 +1,15 @@
 export function getUrl(input: string, fallbackUrl: URL): URL {
-  // sense its an m3u8 remove the last pathname
   try {
-    return new URL(input)
+    return new URL(input); // If input is an absolute URL, return it directly.
   } catch (e) {
-    const pathname = input.startsWith("/")
-      ? input.substring(1)
-      : input;
-    const pathnames = fallbackUrl.pathname.split("/")
-    pathnames[pathnames.length - 1] = pathname;
+    const newUrl = new URL(fallbackUrl.toString()); // Create a copy of fallbackUrl
 
-    fallbackUrl.pathname = pathnames.join("/")
-    return fallbackUrl
+    if (input.startsWith("/")) {
+      newUrl.pathname = input; // Use absolute path
+    } else {
+      newUrl.pathname = new URL(input, newUrl).pathname; // Append relative path correctly
+    }
+
+    return newUrl;
   }
 }
