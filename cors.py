@@ -16,10 +16,10 @@ def safe_json_loads(data: str, default=None):
         return default if default is not None else {}
 
 async def stream_response(url, headers):
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit_per_host=10)) as session:
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit_per_host=50, enable_cleanup_closed=True)) as session:
         async with session.get(url, headers=headers) as resp:
             if resp.status == 200:
-                async for chunk in resp.content.iter_any(1024 * 64):  # 64KB chunks
+                async for chunk in resp.content.iter_any(1024 * 128):  # 128KB chunks for faster streaming
                     yield chunk
             else:
                 yield b""
@@ -31,7 +31,10 @@ def modify_m3u8(content: str, base_url: str) -> str:
         if line.startswith("#"):
             new_lines.append(line)
         elif line.strip():
-            new_lines.append(line if line.startswith("http") else f"{base_url}/{line}")
+            if not line.startswith("http"):
+                line = f"{base_url}/{line}"  # Ensure relative paths are resolved
+            if "?" not in line:  # Avoid duplicate requests due to query params
+                new_lines.append(line)
     return "\n".join(new_lines)
 
 async def cors(request: Request, origins: str, method: str = "GET") -> Response:
@@ -50,7 +53,7 @@ async def cors(request: Request, origins: str, method: str = "GET") -> Response:
         headers["Range"] = request.headers["Range"]
     headers.update(safe_json_loads(request.query_params.get("headers", "{}")))
     
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit_per_host=10)) as session:
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit_per_host=50, enable_cleanup_closed=True)) as session:
         async with session.get(url, headers=headers) as resp:
             if file_type == "m3u8":
                 content = await resp.text()
@@ -58,11 +61,11 @@ async def cors(request: Request, origins: str, method: str = "GET") -> Response:
                 return Response(content, headers={
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Access-Control-Allow-Origin': current_domain,
-                    'Cache-Control': "public, max-age=1800, stale-while-revalidate=60",
+                    'Cache-Control': "public, max-age=1800, stale-while-revalidate=60, must-revalidate",
                 })
             return StreamingResponse(stream_response(url, headers), headers={
                 'Access-Control-Allow-Origin': current_domain,
-                'Cache-Control': "public, max-age=1800, stale-while-revalidate=60",
+                'Cache-Control': "public, max-age=1800, stale-while-revalidate=60, must-revalidate",
             })
 
 @app.websocket("/ws")
