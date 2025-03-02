@@ -1,9 +1,9 @@
-export const M3u8ProxyV1 = async (request: Request<unknown>) => {
+export const M3u8ProxyV1 = async (request: Request) => {
   const url = new URL(request.url);
-  const refererUrl = decodeURIComponent(url.searchParams.get("referer") || "");
-  const targetUrl = decodeURIComponent(url.searchParams.get("url") || "");
-  const originUrl = decodeURIComponent(url.searchParams.get("origin") || "");
-  const proxyAll = decodeURIComponent(url.searchParams.get("all") || "");
+  const refererUrl = url.searchParams.get("referer") || "";
+  const targetUrl = url.searchParams.get("url");
+  const originUrl = url.searchParams.get("origin") || "";
+  const proxyAll = url.searchParams.get("all") || "";
 
   if (!targetUrl) {
     return new Response("Invalid URL", { status: 400 });
@@ -11,38 +11,51 @@ export const M3u8ProxyV1 = async (request: Request<unknown>) => {
 
   const response = await fetch(targetUrl, {
     headers: {
-      Referer: refererUrl || "",
-      Origin: originUrl || "",
+      Referer: refererUrl,
+      Origin: originUrl,
     },
+    keepalive: true, // Helps with persistent connections
   });
 
-  let modifiedM3u8;
-  if (targetUrl.includes(".m3u8")) {
-    let content = await response.text();
-    const targetUrlTrimmed = targetUrl.replace(/([^/]+\.m3u8)$/, "").trim();
-    const encodedUrl = encodeURIComponent(refererUrl);
-    const encodedOrigin = encodeURIComponent(originUrl);
-
-    modifiedM3u8 = content.split("\n").map((line) => {
-      if (line.startsWith("#") || line.trim() == '') {
-        return line;
-      } else if (proxyAll === "yes" && line.startsWith("http")) {
-        return `${url.origin}?url=${line}`;
-      }
-      return `${targetUrlTrimmed}${line}${originUrl ? `&origin=${encodedOrigin}` : ""}${refererUrl ? `&referer=${encodedUrl}` : ""}`;
-    }).join("\n");
+  if (!response.ok) {
+    return new Response("Failed to fetch", { status: response.status });
   }
 
-  const finalContent = modifiedM3u8 || await response.text();
+  // If it's an m3u8 file, modify it
+  if (targetUrl.includes(".m3u8")) {
+    const targetBase = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
+    const content = await response.text();
 
-  return new Response(finalContent, {
+    const modifiedM3u8 = content
+      .split("\n")
+      .map((line) => {
+        line = line.trim();
+        if (!line || line.startsWith("#")) return line; // Keep comments and empty lines
+
+        if (proxyAll === "yes" && line.startsWith("http")) {
+          return `${url.origin}/m3u8proxy?url=${encodeURIComponent(line)}`;
+        }
+
+        // Handle relative paths
+        return targetBase + line;
+      })
+      .join("\n");
+
+    return new Response(modifiedM3u8, {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/vnd.apple.mpegurl",
+      },
+    });
+  }
+
+  // Stream response directly for .ts and other files
+  return new Response(response.body, {
     status: response.status,
-    statusText: response.statusText,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Content-Type": response.headers.get("Content-Type") || "application/vnd.apple.mpegurl",
+      "Content-Type": response.headers.get("Content-Type") || "application/octet-stream",
     },
   });
 };
