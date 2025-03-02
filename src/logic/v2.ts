@@ -1,6 +1,6 @@
 import { getUrl } from "../utils";
 
-const m3u8ContentTypes: string[] = [
+const m3u8ContentTypes = [
   "application/vnd.",
   "video/mp2t",
   "application/x-mpegurl",
@@ -14,9 +14,8 @@ const m3u8ContentTypes: string[] = [
   "application/vnd.apple.mpegurl.video",
 ];
 
-export const M3u8ProxyV2 = async (request: Request<unknown>): Promise<Response> => {
+export const M3u8ProxyV2 = async (request: Request): Promise<Response> => {
   const url = new URL(request.url);
-
   const scrapeUrlString = url.searchParams.get("url");
   const scrapeHeadersString = url.searchParams.get("headers");
 
@@ -27,7 +26,7 @@ export const M3u8ProxyV2 = async (request: Request<unknown>): Promise<Response> 
     });
   }
 
-  let scrapeHeadersObject: ScrapeHeaders;
+  let scrapeHeadersObject: Record<string, string> | null;
   try {
     scrapeHeadersObject = scrapeHeadersString ? JSON.parse(scrapeHeadersString) : null;
   } catch (e) {
@@ -37,26 +36,23 @@ export const M3u8ProxyV2 = async (request: Request<unknown>): Promise<Response> 
     });
   }
 
-  const scrapeUrl = new URL(scrapeUrlString);
-  const headers: { [key: string]: string } = {
+  const headers: Record<string, string> = {
     ...(scrapeHeadersObject || {}),
   };
-
   const rangeHeader = request.headers.get("Range");
-  if (rangeHeader) {
-    headers["Range"] = rangeHeader;
-  }
+  if (rangeHeader) headers["Range"] = rangeHeader;
 
   const response = await fetch(scrapeUrlString, { headers });
   const responseContentType = response.headers.get("Content-Type")?.toLowerCase();
   let responseBody: BodyInit | null = response.body;
 
   const isM3u8 =
-    scrapeUrl.pathname.endsWith(".m3u8") ||
+    scrapeUrlString.endsWith(".m3u8") ||
     (responseContentType && m3u8ContentTypes.some((name) => responseContentType.includes(name)));
 
   if (isM3u8) {
     const m3u8File = await response.text();
+    const scrapeUrl = new URL(scrapeUrlString);
     const m3u8AdjustedChunks: string[] = [];
 
     for (const line of m3u8File.split("\n")) {
@@ -65,10 +61,7 @@ export const M3u8ProxyV2 = async (request: Request<unknown>): Promise<Response> 
           const mapUrlMatch = line.match(/#EXT-X-MAP:URI="(.+?)"/);
           if (mapUrlMatch) {
             const url = getUrl(mapUrlMatch[1], scrapeUrl);
-            const searchParams = new URLSearchParams();
-            searchParams.set("url", url.toString());
-            if (scrapeHeadersString) searchParams.set("headers", scrapeHeadersString);
-            m3u8AdjustedChunks.push(`#EXT-X-MAP:URI="/v2?${searchParams.toString()}"`);
+            m3u8AdjustedChunks.push(`#EXT-X-MAP:URI="${url}"`);
           } else {
             m3u8AdjustedChunks.push(line);
           }
@@ -79,10 +72,7 @@ export const M3u8ProxyV2 = async (request: Request<unknown>): Promise<Response> 
       }
 
       const segmentUrl = getUrl(line, scrapeUrl);
-      const searchParams = new URLSearchParams();
-      searchParams.set("url", new URL(segmentUrl, scrapeUrl).toString());
-      if (scrapeHeadersString) searchParams.set("headers", scrapeHeadersString);
-      m3u8AdjustedChunks.push(`/v2?${searchParams.toString()}`);
+      m3u8AdjustedChunks.push(segmentUrl);
     }
 
     responseBody = m3u8AdjustedChunks.join("\n");
@@ -90,14 +80,11 @@ export const M3u8ProxyV2 = async (request: Request<unknown>): Promise<Response> 
 
   const responseHeaders = new Headers(response.headers);
   responseHeaders.set("Access-Control-Allow-Origin", "*");
-  responseHeaders.set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS");
+  responseHeaders.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
   responseHeaders.set("Access-Control-Allow-Headers", "Content-Type");
 
   return new Response(responseBody, {
     status: response.status,
-    statusText: response.statusText,
     headers: responseHeaders,
   });
 };
-
-type ScrapeHeaders = string | null | { [key: string]: string };
