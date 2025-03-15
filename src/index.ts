@@ -6,21 +6,17 @@ addEventListener("fetch", (event) => {
 });
 
 async function handleRequest(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+
+  // Handle CORS preflight requests
+  if (request.method === "OPTIONS") {
+    return handleCors();
+  }
+
   try {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-
-    // Handle CORS preflight requests
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: getCorsHeaders(),
-      });
-    }
-
     let response: Response;
 
-    switch (pathname) {
+    switch (url.pathname) {
       case "/":
         response = await M3u8ProxyV1(request);
         break;
@@ -28,20 +24,37 @@ async function handleRequest(request: Request): Promise<Response> {
         response = await M3u8ProxyV2(request);
         break;
       default:
-        response = new Response("Not Found", { status: 404 });
+        return new Response("Not Found", { status: 404, headers: getCorsHeaders() });
     }
 
-    // Add CORS headers to all responses
-    return new Response(response.body, {
+    // Clone response to avoid body consumption issues
+    response = new Response(response.clone().body, {
       status: response.status,
-      headers: { ...Object.fromEntries(response.headers), ...getCorsHeaders() },
+      headers: {
+        ...Object.fromEntries(response.headers),
+        ...getCorsHeaders(),
+        "Cache-Control": "public, max-age=3600, stale-while-revalidate=60, must-revalidate", // 1 hour caching
+      },
     });
+
+    return response;
   } catch (error) {
-    return new Response("Internal Server Error", { status: 500, headers: getCorsHeaders() });
+    console.error(`Error: ${error}`);
+    return new Response("Internal Server Error", {
+      status: 500,
+      headers: getCorsHeaders(),
+    });
   }
 }
 
-function getCorsHeaders() {
+function handleCors(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: getCorsHeaders(),
+  });
+}
+
+function getCorsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
