@@ -1,14 +1,20 @@
 name = "m3u8proxy"
 main = "src/index.ts"
-compatibility_date = "2024-03-03"  # Update to the latest compatibility date
+compatibility_date = "2025-03-15"
 type = "javascript"
 
-workers_dev = true  # Keep this true for development
+workers_dev = true
 
-# Enable Smart Caching for M3U8 Streaming
 [vars]
-CACHE_TTL = 3600  # Cache M3U8 files for 1 hour
+CACHE_TTL = 3600
+CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=60"
 
-# Optimize Worker Placement
 [placement]
-mode = "smart"  # Deploy in the closest Cloudflare regions
+mode = "smart"
+
+[build]
+command = "npm install && npm run build"
+
+[compatibility_flags]
+- stream_body_concurrency
+- headers_case_sensitivity
